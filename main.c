@@ -8,16 +8,21 @@ typedef struct{
 
 void removeNewLine(char *line){
     line[strcspn(line, "\r\n")] = '\0';             // removes \r\n from the line. strcspn returns the position.
+    size_t len = strlen(line);
+    while (len > 0 && isspace((unsigned char)line[len - 1])) {
+        line[--len] = '\0';                         // removes trailing spaces and tabs
+    }
 }
 
 int checkMultiLinePrint(char *line, Interpreter *interpreter){
     if (strncmp(line,"print \"\"\"",9) == 0) {
-            interpreter->multiLinePrint = 1;
-            if (strlen((line+9)) != 0){
-                printf("");
-            }
-            return 1;
+        if (line[9] != '\0'){
+            printf("Error: Multiline print must start with print \"\"\" on its own line\n");
+            return -1;
         }
+        interpreter->multiLinePrint = 1;
+        return 1;
+    }
     return 0;
 }
 
@@ -27,7 +32,12 @@ int handleMultiLinePrint(char *line, Interpreter *interpreter){
     }
 
     if (strncmp(line, "\"\"\"",3) == 0){
+        if (line[3] != '\0'){
+            printf("\nError: Multiline print must end with \"\"\" on its own line\n");
+            return -1;
+        }
         interpreter->multiLinePrint = 0;
+        printf("\n");
         return 1;
     }
 
@@ -55,7 +65,7 @@ int handlePrint(char *line){
 
 int handleErrors(char *line){
     if (line[0] == '\0') return 0;
-    printf("\nError: Unkown commad:%s\n", line);
+    printf("\nError: Unknown command: %s\n", line);
     return -1;
 }
 
@@ -85,11 +95,21 @@ int main(int argc, char *argv[]) {                            // Accepts argumen
     while (fgets(line, sizeof(line), file) != NULL) {
 
         removeNewLine(line);
-        
-        if(handleMultiLinePrint(line, &interpreter)) continue;
-        
-        if(checkMultiLinePrint(line, &interpreter)) continue;
-        
+
+        int status = handleMultiLinePrint(line, &interpreter);
+        if(status == -1){
+            fclose(file);
+            return -1;
+        }
+        if(status == 1) continue;
+
+        status = checkMultiLinePrint(line, &interpreter);
+        if(status == -1){
+            fclose(file);
+            return -1;
+        }
+        if(status == 1) continue;
+
         if(handlePrint(line)) continue; 
 
         if(handleErrors(line) == -1){
