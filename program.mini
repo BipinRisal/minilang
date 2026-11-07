@@ -1,9 +1,29 @@
-print """
-sup
-Testing
-"""  
-
-
+print "--- Basic print ---"
 print "Hello"
-
 print "Name: \tSam Baj \nAge: \tUnc"
+
+x = 5
+y = 10
+print "--- Variables ---"
+print "x is {x} and y is {y}"
+
+print "--- Multi-line with variables ---"
+print """
+Total:\t{x}\n
+Next: {y}
+"""
+
+print "--- Escapes in a block ---"
+print """
+Special characters\n
+\\n \n
+\\t \n
+\\  \n
+\"""  \n
+"""
+
+print "--- Literal brace ---"
+print "Literal: \{x}"
+
+print "--- Undefined variable ---"
+print "Bad: {z}"
