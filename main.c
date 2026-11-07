@@ -14,6 +14,23 @@ void removeNewLine(char *line){
     }
 }
 
+void printEscaped(const char *s){
+    for (; *s != '\0'; s++){
+        if (*s == '\\' && s[1] != '\0'){
+            s++;
+            switch (*s){
+                case 'n':  putchar('\n'); break;
+                case 't':  putchar('\t'); break;
+                case '\\': putchar('\\'); break;
+                case '"':  putchar('"');  break;
+                default:   putchar('\\'); putchar(*s); break;
+            }
+        } else {
+            putchar(*s);
+        }
+    }
+}
+
 int checkMultiLinePrint(char *line, Interpreter *interpreter){
     if (strncmp(line,"print \"\"\"",9) == 0) {
         if (line[9] != '\0'){
@@ -41,15 +58,15 @@ int handleMultiLinePrint(char *line, Interpreter *interpreter){
         return 1;
     }
 
-    printf("%s",line);
+    printEscaped(line);  
     return 1;
 }
 
 int handlePrint(char *line){
-    if (strncmp(line, "print ", 6) != 0) {     // compares two strings upto 6th position
+    if (strncmp(line, "print ", 6) != 0) {
         return 0;
-    }       
-    char *message = line + 6;                   
+    }
+    char *message = line + 6;
 
     size_t length = strlen(message);
 
@@ -58,8 +75,9 @@ int handlePrint(char *line){
         message++;
     }
 
-    printf("%s\n", message);
-    
+    printEscaped(message); 
+    printf("\n");
+
     return 1;
 }
 
@@ -86,7 +104,7 @@ int main(int argc, char *argv[]) {                            // Accepts argumen
         return 1;
     }
 
-    printf("Running program: %s\n", filename);
+    printf("Running program: %s\n\n", filename);
 
     char line[1024];
     Interpreter interpreter = {0};

@@ -5,3 +5,5 @@ Testing
 
 
 print "Hello"
+
+print "Name: \tSam Baj \nAge: \tUnc"
