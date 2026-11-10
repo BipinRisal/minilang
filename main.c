@@ -1,9 +1,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
 
 #define MAX_VARS 64
 #define MAX_NAME 32
+#define MAX_LINES 1000
+#define MAX_DEPTH 32
+
+static char program[MAX_LINES][1024];
 
 typedef struct{
     char name[MAX_NAME];
@@ -12,15 +17,21 @@ typedef struct{
 
 typedef struct{
     int multiLinePrint;
+    int lineNumber;
+    int multiLineStart;
+    int pc;
+    int lineCount;
+    int stack[MAX_DEPTH];
+    int depth;
     Variable variables[MAX_VARS];
     int variableCount;
 } Interpreter;
 
 void removeNewLine(char *line){
-    line[strcspn(line, "\r\n")] = '\0';             // removes \r\n from the line. strcspn returns the position.
+    line[strcspn(line, "\r\n")] = '\0';             
     size_t len = strlen(line);
     while (len > 0 && isspace((unsigned char)line[len - 1])) {
-        line[--len] = '\0';                         // removes trailing spaces and tabs
+        line[--len] = '\0';                       
     }
 }
 
@@ -31,6 +42,55 @@ Variable *findVariable(Interpreter *interpreter, const char *name){
         }
     }
     return NULL;
+}
+
+int getValue(const char *token, Interpreter *interpreter, int *out){
+    char *endptr;
+    long number = strtol(token, &endptr, 10);
+    if (endptr != token && *endptr == '\0'){
+        *out = (int)number;
+        return 1;
+    }
+    Variable *var = findVariable(interpreter, token);
+    if (var == NULL){
+        printf("\nError: Undefined variable: %s\n", token);
+        return -1;
+    }
+    *out = var->value;
+    return 1;
+}
+
+int evalCondition(const char *text, Interpreter *interpreter, int *result){
+    char a[MAX_NAME], op[3], b[MAX_NAME];
+    if (sscanf(text, "%31s %2s %31s", a, op, b) != 3){
+        printf("\nError: Invalid condition:%s\n", text);
+        return -1;
+    }
+    int left, right;
+    if (getValue(a, interpreter, &left) == -1) return -1;
+    if (getValue(b, interpreter, &right) == -1) return -1;
+
+    if      (strcmp(op, "==") == 0) *result = (left == right);
+    else if (strcmp(op, "!=") == 0) *result = (left != right);
+    else if (strcmp(op, "<")  == 0) *result = (left <  right);
+    else if (strcmp(op, ">")  == 0) *result = (left >  right);
+    else if (strcmp(op, "<=") == 0) *result = (left <= right);
+    else if (strcmp(op, ">=") == 0) *result = (left >= right);
+    else {
+        printf("\nError: Unknown operator: %s\n", op);
+        return -1;
+    }
+    return 1;
+}
+
+const char *skipSpaces(const char *s){
+    while (*s == ' ' || *s == '\t') s++;
+    return s;
+}
+
+int isKeyword(const char *line, const char *word){
+    size_t n = strlen(word);
+    return strncmp(line, word, n) == 0 && (line[n] == '\0' || line[n] == ' ');
 }
 
 int printEscaped(const char *s, Interpreter *interpreter){
@@ -86,20 +146,137 @@ int setVariable(Interpreter *interpreter, const char *name, int value){
 
 int handleAssignment(char *line, Interpreter *interpreter){
     char name[MAX_NAME];
-    int value;
     int consumed = 0;
 
-    if (sscanf(line, " %31[A-Za-z_] = %d %n", name, &value, &consumed) != 2){  //scanset : tells the sscanf to read characters matching the charachter set i.e. uppercase, lowercase, underscore and 31 max characters to read
+    sscanf(line, " %31[A-Za-z_] = %n", name, &consumed);
+    if (consumed == 0){
         return 0;
     }
-    if (line[consumed] != '\0'){
+
+    char a[MAX_NAME], op[2], b[MAX_NAME];
+    int parts = sscanf(line + consumed, "%31s %1s %31s", a, op, b);
+    int value, left, right;
+
+    if (parts == 1){
+        if (getValue(a, interpreter, &value) == -1) return -1;
+    } else if (parts == 3){
+        if (getValue(a, interpreter, &left) == -1) return -1;
+        if (getValue(b, interpreter, &right) == -1) return -1;
+        switch (op[0]){
+            case '+': value = left + right; break;
+            case '-': value = left - right; break;
+            case '*': value = left * right; break;
+            case '/':
+            case '%':
+                if (right == 0){
+                    printf("\nError: Division by zero\n");
+                    return -1;
+                }
+                value = (op[0] == '/') ? left / right : left % right;
+                break;
+            default:
+                printf("\nError: Unknown operator: %s\n", op);
+                return -1;
+        }
+    } else {
         return 0;
     }
+
     if (!setVariable(interpreter, name, value)){
         printf("\nError: Too many variables\n");
         return -1;
     }
     return 1;
+}
+
+int findMatching(Interpreter *interpreter, int from, int stopAtElse){
+    int depth = 0;
+    int inBlock = 0;
+    for (int i = from + 1; i < interpreter->lineCount; i++){
+        const char *text = program[i];
+        if (inBlock){
+            if (strncmp(text, "\"\"\"", 3) == 0) inBlock = 0;
+            continue;
+        }
+        text = skipSpaces(text);
+        if (strncmp(text, "print \"\"\"", 9) == 0){
+            inBlock = 1;
+            continue;
+        }
+        if (isKeyword(text, "if") || isKeyword(text, "while")){
+            depth++;
+        } else if (isKeyword(text, "end")){
+            if (depth == 0) return i;
+            depth--;
+        } else if (stopAtElse && depth == 0 && isKeyword(text, "else")){
+            return i;
+        }
+    }
+    return -1;
+}
+
+int pushBlock(Interpreter *interpreter, int line){
+    if (interpreter->depth >= MAX_DEPTH){
+        printf("\nError: Blocks are nested too deeply\n");
+        return -1;
+    }
+    interpreter->stack[interpreter->depth++] = line;
+    return 1;
+}
+
+int handleBlocks(char *line, Interpreter *interpreter){
+    int current = interpreter->lineNumber - 1;
+
+    if (isKeyword(line, "if") || isKeyword(line, "while")){
+        int isWhile = isKeyword(line, "while");
+        int result;
+        if (evalCondition(line + (isWhile ? 5 : 2), interpreter, &result) == -1) return -1;
+
+        if (result){
+            if (pushBlock(interpreter, current) == -1) return -1;
+            return 1;
+        }
+
+        int target = findMatching(interpreter, current, !isWhile);
+        if (target == -1){
+            printf("\nError: Missing end for block\n");
+            return -1;
+        }
+        if (isKeyword(skipSpaces(program[target]), "else")){
+            if (pushBlock(interpreter, current) == -1) return -1;
+        }
+        interpreter->pc = target + 1;
+        return 1;
+    }
+
+    if (isKeyword(line, "else")){
+        if (interpreter->depth == 0){
+            printf("\nError: else without if\n");
+            return -1;
+        }
+        int target = findMatching(interpreter, current, 0);
+        if (target == -1){
+            printf("\nError: Missing end for block\n");
+            return -1;
+        }
+        interpreter->depth--;
+        interpreter->pc = target + 1;
+        return 1;
+    }
+
+    if (isKeyword(line, "end")){
+        if (interpreter->depth == 0){
+            printf("\nError: end without if or while\n");
+            return -1;
+        }
+        int opener = interpreter->stack[--interpreter->depth];
+        if (isKeyword(skipSpaces(program[opener]), "while")){
+            interpreter->pc = opener;
+        }
+        return 1;
+    }
+
+    return 0;
 }
 
 int checkMultiLinePrint(char *line, Interpreter *interpreter){
@@ -109,6 +286,7 @@ int checkMultiLinePrint(char *line, Interpreter *interpreter){
             return -1;
         }
         interpreter->multiLinePrint = 1;
+        interpreter->multiLineStart = interpreter->lineNumber;
         return 1;
     }
     return 0;
@@ -164,16 +342,18 @@ int handleErrors(char *line){
     return -1;
 }
 
+int fail(Interpreter *interpreter){
+    printf("  (line %d)\n", interpreter->lineNumber);
+    return -1;
+}
 
-int main(int argc, char *argv[]) {                            // Accepts arguments from the terminal. argc: argument count. For example: .\main.exe program.mini 
-    if (argc < 2){                                            // argc = 2, argv[0] = .\main.exe, argv[1] = program.mini
+int main(int argc, char *argv[]) {
+    if (argc < 2){
         printf("Usage: ./main.exe <filename>.mini\n");
         return 1;
     }
 
     char *filename = argv[1];
-
-
     FILE *file = fopen(filename, "r");
 
     if (file == NULL) {
@@ -186,52 +366,58 @@ int main(int argc, char *argv[]) {                            // Accepts argumen
     char line[1024];
     Interpreter interpreter = {0};
 
-
     while (fgets(line, sizeof(line), file) != NULL) {
-
+        if (interpreter.lineCount >= MAX_LINES){
+            printf("Error: Program is too long (max %d lines)\n", MAX_LINES);
+            fclose(file);
+            return 1;
+        }
         removeNewLine(line);
-
-        int status = handleMultiLinePrint(line, &interpreter);
-        if(status == -1){
-            fclose(file);
-            return -1;
-        }
-        if(status == 1) continue;
-
-        status = checkMultiLinePrint(line, &interpreter);
-        if(status == -1){
-            fclose(file);
-            return -1;
-        }
-        if(status == 1) continue;
-
-         status = handlePrint(line, &interpreter);
-        if(status == -1){
-            fclose(file);
-            return -1;
-        }
-        if(status == 1) continue;
-
-        status = handleAssignment(line, &interpreter);
-        if(status == -1){
-            fclose(file);
-            return -1;
-        }
-        if(status == 1) continue; 
-
-        if(handleErrors(line) == -1){
-            fclose(file);
-            return -1;
-        }
-
-        
+        strcpy(program[interpreter.lineCount++], line);
     }
+    fclose(file);
+
+    while (interpreter.pc < interpreter.lineCount) {
+        int index = interpreter.pc++;
+        interpreter.lineNumber = index + 1;
+        strcpy(line, program[index]);
+
+        char *text = line;
+        if (!interpreter.multiLinePrint){
+            while (*text == ' ' || *text == '\t') text++;
+        }
+
+        int status = handleMultiLinePrint(text, &interpreter);
+        if(status == -1) return fail(&interpreter);
+        if(status == 1) continue;
+
+        status = checkMultiLinePrint(text, &interpreter);
+        if(status == -1) return fail(&interpreter);
+        if(status == 1) continue;
+
+        status = handleBlocks(text, &interpreter);
+        if(status == -1) return fail(&interpreter);
+        if(status == 1) continue;
+
+        status = handlePrint(text, &interpreter);
+        if(status == -1) return fail(&interpreter);
+        if(status == 1) continue;
+
+        status = handleAssignment(text, &interpreter);
+        if(status == -1) return fail(&interpreter);
+        if(status == 1) continue;
+
+        if(handleErrors(text) == -1) return fail(&interpreter);
+    }
+
     if(interpreter.multiLinePrint == 1){
-        printf("Error: Unclosed multiline print statement\n");
-        fclose(file);
+        printf("Error: Unclosed multiline print statement (started on line %d)\n", interpreter.multiLineStart);
+        return -1;
+    }
+    if(interpreter.depth > 0){
+        printf("Error: Block opened on line %d is missing end\n", interpreter.stack[interpreter.depth - 1] + 1);
         return -1;
     }
 
-    fclose(file);
     return 0;
 }

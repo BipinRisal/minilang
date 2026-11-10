@@ -4,15 +4,18 @@ print "Name: \tSam Baj \nAge: \tUnc"
 
 x = 5
 y = 10
+print "\n"
 print "--- Variables ---"
 print "x is {x} and y is {y}"
 
+print "\n"
 print "--- Multi-line with variables ---"
 print """
 Total:\t{x}\n
 Next: {y}
 """
 
+print "\n"
 print "--- Escapes in a block ---"
 print """
 Special characters\n
@@ -22,8 +25,45 @@ Special characters\n
 \"""  \n
 """
 
+print "\n"
 print "--- Literal brace ---"
 print "Literal: \{x}"
 
+print "\n"
+print "--- Math ---"
+a = 10
+b = a * 3
+print "b is {b}"
+
+print "\n"
+print "--- If / else ---"
+if b > 20
+    print "big"
+else
+    print "small"
+end
+
+print "\n"
+print "--- While ---"
+i = 1
+while i <= 3
+    print "i = {i}"
+    i = i + 1
+end
+
+print "\n"
+print "--- Nested ---"
+i = 1
+while i <= 4
+    r = i % 2
+    if r == 0
+        print "{i} is even"
+    else
+        print "{i} is odd"
+    end
+    i = i + 1
+end
+
+print "\n"
 print "--- Undefined variable ---"
 print "Bad: {z}"
